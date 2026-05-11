@@ -1,10 +1,10 @@
 import * as fs from "fs";
-import { inflate } from 'node:zlib';
+import { inflate, deflate } from 'node:zlib';
 import { promisify } from 'node:util';
 import * as path from 'node:path';
 
 const inflateAsync = promisify(inflate);
-
+const deflateAsync = promisify(deflate);
 const args = process.argv.slice(2);
 const command = args[0];
 
@@ -20,7 +20,7 @@ switch (command) {
     fs.writeFileSync(".git/HEAD", "ref: refs/heads/main\n");
     console.log("Initialized git directory");
     break;
-    case "cat-file":
+  case "cat-file":
     const sha = args[2];
     const firstPart = sha.slice(0, 2);
     const secondPart = sha.slice(2);
@@ -30,6 +30,17 @@ switch (command) {
     const decoded = original.toString();
     const content = decoded.slice(decoded.indexOf("\0") + 1);
     process.stdout.write(content);    
+    break;
+  case "hash-object":
+    const readFile = args[2];
+    const fileContent = fs.readFileSync(readFile, 'utf8');
+    const compressedContent = await deflateAsync(fileContent);
+    const first = compressedContent.slice(0, 2).toString('hex');
+    const second = compressedContent.slice(2).toString('hex');
+    const combined = path.join('.git/objects', first, second);
+    fs.mkdirSync(path.dirname(combined), { recursive: true });
+    fs.writeFileSync(combined, compressedContent);
+    process.stdout.write(combined); 
     break;
   default:
     throw new Error(`Unknown command ${command}`);

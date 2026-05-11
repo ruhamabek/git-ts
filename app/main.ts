@@ -21,7 +21,31 @@ switch (command) {
     console.log("Initialized git directory");
     break;
     case "cat-file":
-   
+    const sha = args[2];
+  
+        // Split SHA
+        const dir = sha.slice(0, 2);
+        const file = sha.slice(2);
+  
+        // Build git object path
+        const objectPath = path.join(".git", "objects", dir, file);
+  
+        // Read compressed object
+        const compressed = fs.readFileSync(objectPath);
+  
+        // Decompress
+        const decompressed = await inflateAsync(compressed);
+  
+        // Convert to string
+        const content = decompressed.toString();
+  
+        // Remove "blob <size>\0"
+        const nullByteIndex = content.indexOf("\0");
+        const actualContent = content.slice(nullByteIndex + 1);
+  
+        // Print without extra newline
+        process.stdout.write(actualContent);
+
     break;
   default:
     throw new Error(`Unknown command ${command}`);

@@ -22,30 +22,14 @@ switch (command) {
     break;
     case "cat-file":
     const sha = args[2];
-  
-        // Split SHA
-        const dir = sha.slice(0, 2);
-        const file = sha.slice(2);
-  
-        // Build git object path
-        const objectPath = path.join(".git", "objects", dir, file);
-  
-        // Read compressed object
-        const compressed = fs.readFileSync(objectPath);
-  
-        // Decompress
-        const decompressed = await inflateAsync(compressed);
-  
-        // Convert to string
-        const content = decompressed.toString();
-  
-        // Remove "blob <size>\0"
-        const nullByteIndex = content.indexOf("\0");
-        const actualContent = content.slice(nullByteIndex + 1);
-  
-        // Print without extra newline
-        process.stdout.write(actualContent);
-
+    const firstPart = sha.slice(0, 2);
+    const secondPart = sha.slice(2);
+    const filePath = path.join('.git/objects', firstPart, secondPart);
+    const compressed = fs.readFileSync(filePath);
+    const original = await inflateAsync(compressed);
+    const decoded = original.toString();
+    const content = decoded.slice(decoded.indexOf("\0") + 1);
+    process.stdout.write(content);    
     break;
   default:
     throw new Error(`Unknown command ${command}`);

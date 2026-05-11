@@ -2,6 +2,7 @@ import * as fs from "fs";
 import { inflate, deflate } from 'node:zlib';
 import { promisify } from 'node:util';
 import * as path from 'node:path';
+import { createHash } from "node:crypto";
 
 const inflateAsync = promisify(inflate);
 const deflateAsync = promisify(deflate);
@@ -33,14 +34,18 @@ switch (command) {
     break;
   case "hash-object":
     const readFile = args[2];
-    const fileContent = fs.readFileSync(readFile, 'utf8');
-    const compressedContent = await deflateAsync(fileContent);
-    const first = compressedContent.slice(0, 2).toString('hex');
-    const second = compressedContent.slice(2).toString('hex');
-    const combined = path.join('.git/objects', first, second);
-    fs.mkdirSync(path.dirname(combined), { recursive: true });
-    fs.writeFileSync(combined, compressedContent);
-    process.stdout.write(combined); 
+    const fileContent = fs.readFileSync(readFile);
+    const fileLength = fileContent.length;
+    const header = `blob ${fileLength}\0`;
+    const store = Buffer.concat([Buffer.from(header), fileContent]);
+    const sha2 = createHash("sha1").update(store).digest("hex");
+    const compressed2 = await deflateAsync(store);
+    const first = sha2.slice(0, 2);
+    const second = sha2.slice(2);
+    const objectPath = path.join('.git/objects', first, second);
+    fs.mkdirSync(path.join('.git/objects', first), { recursive: true });
+    fs.writeFileSync(objectPath, compressed2);
+    process.stdout.write(sha2);    
     break;
   default:
     throw new Error(`Unknown command ${command}`);

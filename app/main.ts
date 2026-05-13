@@ -31,90 +31,29 @@ switch (command) {
     const filePath = path.join('.git/objects', firstPart, secondPart);
     const compressed = fs.readFileSync(filePath);
     const original = await inflateAsync(compressed);
-    
-    // Find header end
     const nullIndex = original.indexOf(0);
-    ///0
-    
-    // Parse header
     const header = original.slice(0, nullIndex).toString();
-    
-    // Example:
-    // "blob 11\0"
-    // "tree 52"
-    
     const type = header.split(" ")[0];
-    
-  // Body after header
-  const content = original.slice(nullIndex + 1);
-  
-  
-  // ====================
-  // BLOB
-  // ====================
-  
-  if (type === "blob") {
-    process.stdout.write(content.toString());
-  }
-  
-  
-  // ====================
-  // TREE
-  // ====================
-  
-  if (type === "tree") {
-  
-    let i = 0;
-  
-    while (i < content.length) {
-  
-      // --------------------
-      // MODE
-      // --------------------
-  
-      const spaceIndex = content.indexOf(32, i);
-  
-      const mode = content.slice(i, spaceIndex).toString();
-  
+    const content = original.slice(nullIndex + 1);
+    if (type === "blob" || type === "commit") {
+      process.stdout.write(content.toString());
+    }
+    if (type === "tree") {
+      let i = 0;
+      while (i < content.length) {
+        const spaceIndex = content.indexOf(32, i);
+        const mode = content.slice(i, spaceIndex).toString();
       i = spaceIndex + 1;
-    
-  
-      // --------------------
-      // FILENAME
-      // --------------------
-  // 040000 file name\0 <raw sha20>
       const nullIndex = content.indexOf(0, i);
-  
       const filename = content.slice(i, nullIndex).toString();
-  
       i = nullIndex + 1;
-  
-  
-      // --------------------
-      // SHA (20 RAW BYTES)
-      // --------------------
-  
       const shaBuffer = content.slice(i, i + 20);
-  
       const shaHex = shaBuffer.toString("hex");
-  
       i += 20;
-  
-  
-      // --------------------
-      // TYPE
-      // --------------------
-  
       const objectType =
         mode === "040000"
           ? "tree"
           : "blob";
-  
-  
-      // --------------------
-      // PRINT
-      // --------------------
-  
       process.stdout.write(`${mode} ${objectType} ${shaHex} ${filename}\n`);
     }
   }
@@ -138,6 +77,58 @@ switch (command) {
     const sha4 = writeTree(".");
     process.stdout.write(sha4);
     break;
+  case "commit-tree":
+    const treeSha = args[1];
+    const parentFlagIndex = args.indexOf("-p");
+    const parentSha = parentFlagIndex !== -1 ? args[parentFlagIndex + 1] : null;
+    const commitContent =
+`tree ${treeSha}
+${parentSha ? `parent ${parentSha}\n` : ''}
+author Ruhama <ruhama@example.com> 1715550000 +0300
+committer Ruhama <ruhama@example.com> 1715550000 +0300
+
+Initial commit
+`;
+    const header3 = `commit ${commitContent.length}\0`;
+    const store3 = Buffer.concat([Buffer.from(header3), Buffer.from(commitContent)]);
+    const commitSha = createHash("sha1").update(store3).digest("hex");
+    const compressed3 = await deflateAsync(store3);
+    const first3 = commitSha.slice(0, 2);
+    const second3 = commitSha.slice(2);
+    const objectPath3 = path.join('.git/objects', first3, second3);
+    fs.mkdirSync(path.join('.git/objects', first3), { recursive: true });
+    fs.writeFileSync(objectPath3, compressed3);
+    process.stdout.write(commitSha);
+    break;
+  case "update-ref":
+    const ref = args[1]; //ref/heads/main
+    const sha5 = args[2]; //commit-sha
+    const refPath = path.join('.git', ref); 
+    fs.mkdirSync(path.dirname(refPath), { recursive: true });
+    fs.writeFileSync(refPath, sha5 + '\n');
+    break;
+  case "log": {
+      const head = fs.readFileSync(path.join('.git', 'HEAD'), 'utf8').trim();
+      const ref = head.replace('ref: ', '');
+      const commitSha2 = fs.readFileSync(path.join('.git', ref), 'utf8').trim();
+      let current: string | null = commitSha2;
+      while (current) {
+        const objPath = path.join(
+          '.git',
+          'objects',
+          current.slice(0, 2),
+          current.slice(2)
+        );
+        const compressed = fs.readFileSync(objPath);  
+        const raw = await inflateAsync(compressed); 
+        const content = raw.slice(raw.indexOf(0) + 1).toString();
+        process.stdout.write(content + "\n");
+        const parentMatch = content.match(/^parent (.+)$/m);
+        current = parentMatch ? parentMatch[1] : null;
+      }
+    
+      break;
+    }
   default:
     throw new Error(`Unknown command ${command}`);
 

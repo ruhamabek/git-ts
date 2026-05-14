@@ -4,7 +4,8 @@ import { promisify } from 'node:util';
 import * as path from 'node:path';
 import { createHash } from "node:crypto";
 import { writeTree } from "./helper/writeTree";
-
+import { restoreTree } from "./helper/restoreTree";
+import { resolveCommit } from "./helper/resolveCommit";
 
 const inflateAsync = promisify(inflate);
 const deflateAsync = promisify(deflate);
@@ -126,6 +127,74 @@ Initial commit
         const parentMatch = content.match(/^parent (.+)$/m);
         current = parentMatch ? parentMatch[1] : null;
       }
+    }
+    break;
+  
+    case "checkout": {
+      const target = args[1];
+      const branchPath = path.join(".git", "refs", "heads", target);
+      const isBranch = fs.existsSync(branchPath);
+      const commitSha = resolveCommit(target);
+          if (!/^[0-9a-f]{40}$/.test(commitSha)) {
+        throw new Error(`Checkout resolved invalid commit: ${commitSha}`);
+      }
+
+      if (isBranch) {
+        fs.writeFileSync(
+          path.join(".git", "HEAD"),
+          `ref: refs/heads/${target}\n`
+        );
+      } else {
+        fs.writeFileSync(
+          path.join(".git", "HEAD"),
+          commitSha + "\n"
+        );
+      }
+        const objectPath = path.join(
+        ".git",
+        "objects",
+        commitSha.slice(0, 2),
+        commitSha.slice(2)
+      );
+    
+      if (!fs.existsSync(objectPath)) {
+        throw new Error(`Missing commit object: ${commitSha}`);
+      }
+    
+      const compressed = fs.readFileSync(objectPath);
+      const raw = await inflateAsync(compressed);
+      const content = raw.slice(raw.indexOf(0) + 1).toString();
+      const treeMatch = content.match(/^tree (.+)$/m);
+    
+      if (!treeMatch) {
+        throw new Error(`No tree found in commit ${commitSha}`);
+      }
+    
+      await restoreTree(treeMatch[1], ".");
+      break;
+    }
+    case "branch": {
+      const branchName = args[1];
+      const head = fs.readFileSync(".git/HEAD", "utf8").trim();
+      let commitSha: string;
+    
+      if (head.startsWith("ref: ")) {
+        const ref = head.replace("ref: ", "").trim();
+    
+        commitSha = fs.readFileSync(
+          path.join(".git", ref),
+          "utf8"
+        ).trim();
+      } else {
+        commitSha = head.trim();
+      }
+    
+      if (!/^[0-9a-f]{40}$/.test(commitSha)) {
+        throw new Error(`Cannot create branch from invalid commit: ${commitSha}`);
+      }
+      const branchPath = path.join(".git", "refs", "heads", branchName);
+      fs.mkdirSync(path.dirname(branchPath), { recursive: true });
+    fs.writeFileSync(branchPath, commitSha + "\n");
     
       break;
     }

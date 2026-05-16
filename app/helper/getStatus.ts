@@ -1,19 +1,29 @@
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import { getCommitTree } from "./getCommitTree";
 import { inflateSync } from "node:zlib";
+
+import { getCommitTree } from "./getCommitTree";
 
 function getHeadTree(): Record<string, string> {
   const head = fs.readFileSync(".git/HEAD", "utf8").trim();
 
-  let commitSha: string;
+  let commitSha = "";
 
   if (head.startsWith("ref: ")) {
     const ref = head.replace("ref: ", "").trim();
-    commitSha = fs.readFileSync(path.join(".git", ref), "utf8").trim();
+    const refPath = path.join(".git", ref);
+
+    if (fs.existsSync(refPath)) {
+      commitSha = fs.readFileSync(refPath, "utf8").trim();
+    }
   } else {
     commitSha = head;
+  }
+
+  // no commits yet
+  if (!/^[0-9a-f]{40}$/.test(commitSha)) {
+    return {};
   }
 
   const treeSha = getCommitTree(commitSha);
@@ -21,7 +31,10 @@ function getHeadTree(): Record<string, string> {
   return flattenTree(treeSha);
 }
 
-function flattenTree(treeSha: string, prefix = ""): Record<string, string> {
+function flattenTree(
+  treeSha: string,
+  prefix = ""
+): Record<string, string> {
   const objPath = path.join(
     ".git",
     "objects",
@@ -35,25 +48,44 @@ function flattenTree(treeSha: string, prefix = ""): Record<string, string> {
   const content = raw.slice(raw.indexOf(0) + 1);
 
   let i = 0;
+
   const result: Record<string, string> = {};
 
   while (i < content.length) {
     const spaceIndex = content.indexOf(32, i);
-    const mode = content.slice(i, spaceIndex).toString();
+
+    const mode = content
+      .slice(i, spaceIndex)
+      .toString();
+
     i = spaceIndex + 1;
 
     const nullIndex = content.indexOf(0, i);
-    const name = content.slice(i, nullIndex).toString();
+
+    const name = content
+      .slice(i, nullIndex)
+      .toString();
+
     i = nullIndex + 1;
 
-    const sha = content.slice(i, i + 20).toString("hex");
+    const sha = content
+      .slice(i, i + 20)
+      .toString("hex");
+
     i += 20;
 
     const fullPath = prefix + name;
 
+    // directory
     if (mode === "040000") {
-      Object.assign(result, flattenTree(sha, fullPath + "/"));
-    } else {
+      Object.assign(
+        result,
+        flattenTree(sha, fullPath + "/")
+      );
+    }
+
+    // file
+    else {
       result[fullPath] = sha;
     }
   }
@@ -66,29 +98,47 @@ function readWorkingDir(): Record<string, string> {
 
   function walk(dir: string) {
     const entries = fs.readdirSync(dir);
-
+  
     for (const entry of entries) {
-      if (entry === ".git") continue;
-
       const full = path.join(dir, entry);
+  
+      const relative = path
+        .relative(".", full)
+        .replaceAll("\\", "/");
+  
+      // ignore ALL .git directories
+      if (relative.split("/").includes(".git")) {
+        continue;
+      }
+  
       const stat = fs.statSync(full);
-
+  
       if (stat.isDirectory()) {
         walk(full);
       } else {
         const content = fs.readFileSync(full);
+  
         const header = `blob ${content.length}\0`;
-        const store = Buffer.concat([Buffer.from(header), content]);
-        const sha = createHash("sha1").update(store).digest("hex");
-
-        result[full.replace("./", "")] = sha;
+  
+        const store = Buffer.concat([
+          Buffer.from(header),
+          content,
+        ]);
+  
+        const sha = createHash("sha1")
+          .update(store)
+          .digest("hex");
+  
+        result[relative] = sha;
       }
     }
   }
 
   walk(".");
+
   return result;
 }
+
 function readIndex(): Record<string, string> {
   const indexPath = ".git/index";
 
@@ -107,26 +157,31 @@ function readIndex(): Record<string, string> {
 
 export function getStatus(): string {
   const index = readIndex();
+
   const head = getHeadTree();
+
   const working = readWorkingDir();
 
   let output = "";
 
-  // 1. staged changes (index vs HEAD)
+  // staged changes
   for (const file in index) {
     if (index[file] !== head[file]) {
       output += `staged: ${file}\n`;
     }
   }
 
-  // 2. modified (working vs index)
+  // modified files
   for (const file in working) {
-    if (index[file] && index[file] !== working[file]) {
+    if (
+      index[file] &&
+      index[file] !== working[file]
+    ) {
       output += `modified: ${file}\n`;
     }
   }
 
-  // 3. untracked files
+  // untracked files
   for (const file in working) {
     if (!index[file]) {
       output += `untracked: ${file}\n`;

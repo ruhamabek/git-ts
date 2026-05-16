@@ -44,7 +44,7 @@ function resolveHeadCommit(): { ref: string | null; sha: string | null } {
 }
 
 switch (command) {
-  case "init": {
+case "init": {
     fs.mkdirSync(".git/objects", { recursive: true });
     fs.mkdirSync(".git/refs/heads", { recursive: true });
 
@@ -55,7 +55,7 @@ switch (command) {
     break;
   }
 
-  case "cat-file": {
+case "cat-file": {
     const sha = args[2];
     const filePath = path.join(".git/objects", sha.slice(0, 2), sha.slice(2));
 
@@ -65,8 +65,7 @@ switch (command) {
     const nullIndex = original.indexOf(0);
     const header = original.slice(0, nullIndex).toString();
     const type = header.split(" ")[0];
-
-    const content = original.slice(nullIndex + 1);
+   const content = original.slice(nullIndex + 1);
 
     if (type === "blob" || type === "commit") {
       process.stdout.write(content.toString());
@@ -99,7 +98,7 @@ switch (command) {
     break;
   }
 
-  case "hash-object": {
+case "hash-object": {
     const file = args[2];
     const content = fs.readFileSync(file);
 
@@ -123,13 +122,13 @@ switch (command) {
     break;
   }
 
-  case "write-tree": {
+case "write-tree": {
     const sha = writeTreeFromIndex();
     process.stdout.write(sha);
     break;
   }
 
-  case "commit-tree": {
+case "commit-tree": {
     const treeSha = args[1];
     const parentIndex = args.indexOf("-p");
     const parentSha =
@@ -173,7 +172,7 @@ Initial commit
     break;
   }
 
-  case "log": {
+case "log": {
     const head = getHead();
 
     const first = resolveHeadCommit();
@@ -199,7 +198,7 @@ Initial commit
     break;
   }
 
-  case "checkout": {
+case "checkout": {
     const target = args[1];
 
     const branchPath = path.join(".git", "refs", "heads", target);
@@ -235,7 +234,7 @@ Initial commit
     break;
   }
 
-  case "branch": {
+case "branch": {
     const name = args[1];
 
     const { sha } = resolveHeadCommit();
@@ -299,13 +298,13 @@ Merge branch '${target}'
 
     break;
   }
-
-  case "add": {
+    
+case "add": {
     addToIndex(args[1]);
     break;
   }
 
-  case "commit": {
+case "commit": {
     const msgIndex = args.indexOf("-m");
     if (msgIndex === -1) throw new Error("Missing message");
 

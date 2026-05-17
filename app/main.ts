@@ -3,13 +3,16 @@ import { inflate, deflate } from "node:zlib";
 import { promisify } from "node:util";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-
+import { getDiff } from "./helper/getDiff";
 import { writeTreeFromIndex } from "./helper/writeTreeFromIndex";
 import { restoreTree } from "./helper/restoreTree";
 import { resolveCommit } from "./helper/resolveCommit";
-import { getCommitTree } from "./helper/getCommitTree";
 import { addToIndex } from "./helper/addToIndex";
 import { getStatus } from "./helper/getStatus";
+import { findMergeBase } from "./helper/findMergeBase";
+import { getCommitFiles } from "./helper/getCommitFiles";
+import { readBlob } from "./helper/getDiff";
+import { mergeText } from "./helper/mergeText";
 
 const inflateAsync = promisify(inflate);
 const deflateAsync = promisify(deflate);
@@ -51,7 +54,7 @@ case "init": {
     fs.writeFileSync(".git/HEAD", "ref: refs/heads/main\n");
     fs.writeFileSync(".git/refs/heads/main", "");
 
-    console.log("Initialized git directory");
+    process.stdout.write("Initialized git directory");
     break;
   }
 
@@ -65,7 +68,7 @@ case "cat-file": {
     const nullIndex = original.indexOf(0);
     const header = original.slice(0, nullIndex).toString();
     const type = header.split(" ")[0];
-   const content = original.slice(nullIndex + 1);
+    const content = original.slice(nullIndex + 1);
 
     if (type === "blob" || type === "commit") {
       process.stdout.write(content.toString());
@@ -161,7 +164,7 @@ Initial commit
     break;
   }
 
-  case "update-ref": {
+case "update-ref": {
     const ref = args[1];
     const sha = args[2];
 
@@ -251,51 +254,102 @@ case "branch": {
 
   case "merge": {
     const target = args[1];
-
+  
     const head = getHead();
     if (!isRef(head)) throw new Error("Detached HEAD");
-
+  
     const currentRef = head.replace("ref: ", "").trim();
-
+  
     const currentCommit = fs
       .readFileSync(path.join(".git", currentRef), "utf8")
       .trim();
-
+  
     const targetRef = path.join(".git", "refs", "heads", target);
-
+  
     if (!fs.existsSync(targetRef)) {
       throw new Error("Branch does not exist");
     }
-
+  
     const targetCommit = fs.readFileSync(targetRef, "utf8").trim();
-
-    const targetTree = getCommitTree(targetCommit);
-
-    await restoreTree(targetTree, ".");
-
+  
+     const baseCommit = findMergeBase(currentCommit, targetCommit);
+  
+    const safeBase =
+      baseCommit && /^[0-9a-f]{40}$/.test(baseCommit)
+        ? baseCommit
+        : null;
+  
+ 
+    const baseFiles = safeBase ? getCommitFiles(safeBase) : {};
+    const ourFiles = getCommitFiles(currentCommit);
+    const theirFiles = getCommitFiles(targetCommit);
+  
+    const allFiles = new Set([
+      ...Object.keys(baseFiles),
+      ...Object.keys(ourFiles),
+      ...Object.keys(theirFiles),
+    ]);
+  
+    const load = (sha?: string) => {
+      if (!sha) return "";
+      return readBlob(sha);
+    };
+  
+    let hasConflict = false;
+  
+     for (const file of allFiles) {
+      const base = load(baseFiles[file]);
+      const ours = load(ourFiles[file]);
+      const theirs = load(theirFiles[file]);
+  
+      const merged = mergeText(base, ours, theirs, target);
+  
+      if (merged.includes("<<<<<<<")) {
+        hasConflict = true;
+      }
+  
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, merged);
+  
+      addToIndex(file);
+    }
+  
+     const treeSha = writeTreeFromIndex();
+  
     const content =
-`tree ${targetTree}
-parent ${currentCommit}
-parent ${targetCommit}
-author Ruhama <ruhama@example.com> 1715550000 +0300
-committer Ruhama <ruhama@example.com> 1715550000 +0300
-
-Merge branch '${target}'
-`;
-
+  `tree ${treeSha}
+  parent ${currentCommit}
+  parent ${targetCommit}
+  author Ruhama <ruhama@example.com> 1715550000 +0300
+  committer Ruhama <ruhama@example.com> 1715550000 +0300
+  
+  Merge branch '${target}'
+  `;
+  
     const header = `commit ${Buffer.byteLength(content)}\0`;
     const store = Buffer.concat([Buffer.from(header), Buffer.from(content)]);
-
+  
     const sha = createHash("sha1").update(store).digest("hex");
     const compressed = await deflateAsync(store);
-
-    const objectPath = path.join(".git/objects", sha.slice(0, 2), sha.slice(2));
-
+  
+    const objectPath = path.join(
+      ".git",
+      "objects",
+      sha.slice(0, 2),
+      sha.slice(2)
+    );
+  
     fs.mkdirSync(path.dirname(objectPath), { recursive: true });
     fs.writeFileSync(objectPath, compressed);
-
+  
     fs.writeFileSync(path.join(".git", currentRef), sha + "\n");
-
+  
+    if (hasConflict) {
+      process.stdout.write("Merge completed with conflicts");
+    } else {
+      process.stdout.write("Merge completed successfully");
+    }
+  
     break;
   }
     
@@ -350,7 +404,10 @@ case "status": {
     process.stdout.write(result);
     break;
   }
-
+case "diff": {
+    process.stdout.write(getDiff());
+    break;
+  }
   default:
     throw new Error(`Unknown command ${command}`);
 }

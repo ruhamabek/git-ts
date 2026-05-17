@@ -2,8 +2,7 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { inflateSync } from "node:zlib";
-
-import { getCommitTree } from "./getCommitTree";
+import { getCommitFiles } from "./getCommitFiles";
 
 function getHeadTree(): Record<string, string> {
   const head = fs.readFileSync(".git/HEAD", "utf8").trim();
@@ -12,26 +11,26 @@ function getHeadTree(): Record<string, string> {
 
   if (head.startsWith("ref: ")) {
     const ref = head.replace("ref: ", "").trim();
+
     const refPath = path.join(".git", ref);
 
     if (fs.existsSync(refPath)) {
-      commitSha = fs.readFileSync(refPath, "utf8").trim();
+      commitSha = fs
+        .readFileSync(refPath, "utf8")
+        .trim();
     }
   } else {
     commitSha = head;
   }
 
-  // no commits yet
   if (!/^[0-9a-f]{40}$/.test(commitSha)) {
     return {};
   }
 
-  const treeSha = getCommitTree(commitSha);
-
-  return flattenTree(treeSha);
+  return getCommitFiles(commitSha);
 }
 
-function flattenTree(
+export function flattenTree(
   treeSha: string,
   prefix = ""
 ): Record<string, string> {
@@ -106,7 +105,7 @@ function readWorkingDir(): Record<string, string> {
         .relative(".", full)
         .replaceAll("\\", "/");
   
-      // ignore ALL .git directories
+      // ignore .git 
       if (relative.split("/").includes(".git")) {
         continue;
       }

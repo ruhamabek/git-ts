@@ -2,8 +2,16 @@ import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
 import { deflateSync } from "zlib";
+import { readGitIgnore } from "./gitignore";
+import { isIgnored } from "./gitignore";
 
 export function addToIndex(filePath: string) {
+  const ignorePatterns = readGitIgnore();
+  if (isIgnored(filePath, ignorePatterns)) {
+    console.log(`ignored ${filePath}`);
+    return;
+  }
+
   const content = fs.readFileSync(filePath);
 
   const header = `blob ${content.length}\0`;
@@ -17,7 +25,6 @@ export function addToIndex(filePath: string) {
     .update(store)
     .digest("hex");
 
-  // write blob object
   const objectPath = path.join(
     ".git",
     "objects",
@@ -34,7 +41,6 @@ export function addToIndex(filePath: string) {
     deflateSync(store)
   );
 
-  // update index
   const indexPath = path.join(".git", "index");
 
   let index: Record<string, string> = {};
